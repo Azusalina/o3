@@ -16,9 +16,14 @@ struct ContentView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section("Output") {
+                    Picker("Export format", selection: $queue.exportFormat) {
+                        ForEach(ExportFormat.allCases) { format in
+                            Text(format.label).tag(format)
+                        }
+                    }.disabled(queue.isRunning)
                     Text("Files → On My iPhone / iPad → RawDenoise → denoised")
                         .font(.footnote).textSelection(.enabled)
-                    Text("16-bit TIFF · original RAW files are preserved")
+                    Text("\(queue.exportFormat.details) · originals are preserved")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if !queue.items.isEmpty {
@@ -29,7 +34,7 @@ struct ContentView: View {
                                 Text(item.status).font(.caption).foregroundStyle(.secondary)
                                 if let progress = item.progress { ProgressView(value: progress) }
                                 if let output = item.output {
-                                    ShareLink(item: output) { Label("Share TIFF", systemImage: "square.and.arrow.up") }
+                                    ShareLink(item: output) { Label("Share \(output.pathExtension.uppercased())", systemImage: "square.and.arrow.up") }
                                         .font(.caption)
                                 }
                             }.padding(.vertical, 3)

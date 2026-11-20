@@ -11,13 +11,39 @@ concurrency:
   group: ios-${{ github.ref }}
   cancel-in-progress: false
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: version
+        name: Increment the latest remote version
+        run: |
+          VERSION=$(python3 scripts/release_version.py)
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
   ios:
+    needs: version
     runs-on: macos-15
     timeout-minutes: 30
+    env:
+      APP_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - name: Show Xcode version
         run: xcodebuild -version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate real DNG exports with LibRaw
+        run: |
+          mkdir -p build
+          swiftc RawDenoise/LinearDNGWriter.swift Tests/DNGExportCheck.swift -o build/dng-check
+          build/dng-check build/dng-validation.dng
+          python3 -m pip install 'numpy<3' tifffile rawpy
+          python3 scripts/verify_dng.py build/dng-validation.dng
       - name: Select an available iPhone simulator
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
@@ -28,7 +54,8 @@ jobs:
           xcodebuild -project RawDenoise.xcodeproj -scheme RawDenoise \
             -destination "platform=iOS Simulator,id=$DEVICE_ID" \
             -parallel-testing-enabled NO -resultBundlePath build/Tests.xcresult \
-            CODE_SIGNING_ALLOWED=NO test | tee build-tests.log
+            CODE_SIGNING_ALLOWED=NO MARKETING_VERSION="$APP_VERSION" \
+            CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" test | tee build-tests.log
       - name: Archive iOS application
         run: |
           set -o pipefail
@@ -36,19 +63,20 @@ jobs:
             -configuration Release -destination 'generic/platform=iOS' \
             -archivePath build/RawDenoise.xcarchive \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO \
+            MARKETING_VERSION="$APP_VERSION" CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER" \
             archive | tee build-archive.log
       - name: Package unsigned IPA and verify contents
         run: |
           mkdir -p build/package/Payload build/release
           cp -R build/RawDenoise.xcarchive/Products/Applications/RawDenoise.app build/package/Payload/
-          python3 scripts/verify_app.py build/package/Payload/RawDenoise.app
-          (cd build/package && ditto -c -k --sequesterRsrc --keepParent Payload ../release/RawDenoise-v1.0-unsigned.ipa)
+          python3 scripts/verify_app.py build/package/Payload/RawDenoise.app "$APP_VERSION"
+          (cd build/package && ditto -c -k --sequesterRsrc --keepParent Payload "../release/RawDenoise-v${APP_VERSION}-unsigned.ipa")
           cp RELEASE_NOTES.md build/release/
-          (cd build/release && shasum -a 256 RawDenoise-v1.0-unsigned.ipa > SHA256SUMS.txt)
+          (cd build/release && shasum -a 256 "RawDenoise-v${APP_VERSION}-unsigned.ipa" > SHA256SUMS.txt)
       - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: RawDenoise-v1.0-unsigned
+          name: RawDenoise-v${{ env.APP_VERSION }}-unsigned
           path: build/release/
           if-no-files-found: error
       - name: Upload test results and logs
@@ -60,9 +88,10 @@ jobs:
             build/Tests.xcresult
             build-tests.log
             build-archive.log
+            build/dng-validation.dng
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: ios
+    if: github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v')
+    needs: [version, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -70,13 +99,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: RawDenoise-v1.0-unsigned
+          name: RawDenoise-v${{ needs.version.outputs.version }}-unsigned
           path: release-assets
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: v${{ needs.version.outputs.version }}
         run: |
-          gh release create "$RELEASE_TAG" --verify-tag \
+          gh release create "$RELEASE_TAG" --target "$GITHUB_SHA" \
             --title "RawDenoise $RELEASE_TAG" --notes-file RELEASE_NOTES.md \
             release-assets/*.ipa release-assets/SHA256SUMS.txt

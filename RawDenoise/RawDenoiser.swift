@@ -12,7 +12,7 @@ enum DenoiseError: LocalizedError {
         case .missingModel: "The bundled RawForge Core ML model is missing."
         case .invalidImage: "The RAW image could not be decoded, or its dimensions are too large."
         case .invalidPrediction: "RawForge returned an invalid tile."
-        case .cannotSave: "The TIFF could not be saved. Check available device storage."
+        case .cannotSave: "The image could not be saved. Check available device storage."
         }
     }
 }
@@ -24,7 +24,7 @@ actor RawDenoiser {
         .workingColorSpace: colorSpace, .cacheIntermediates: false
     ])
 
-    func denoise(source: URL, name: String, folder: URL,
+    func denoise(source: URL, name: String, folder: URL, format: ExportFormat = .dng,
                  progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         try Task.checkCancellation()
         if model == nil {
@@ -128,20 +128,28 @@ actor RawDenoiser {
         }
         try Task.checkCancellation()
         let base = URL(fileURLWithPath: name).deletingPathExtension().lastPathComponent
-        let output = uniqueOutput(base: base, folder: folder)
-        let temporary = folder.appendingPathComponent(".\(UUID().uuidString).tiff")
+        let output = uniqueOutput(base: base, folder: folder, format: format)
+        let temporary = folder.appendingPathComponent(".\(UUID().uuidString).\(format.rawValue)")
         defer { try? FileManager.default.removeItem(at: temporary) }
-        try raster.writeTIFF(to: temporary, colorSpace: CGColorSpace(name: CGColorSpace.linearITUR_2020)!)
+        switch format {
+        case .dng:
+            try withExtendedLifetime(raster) {
+                try LinearDNGWriter.write(to: temporary, width: width, height: height,
+                                          pixels: UnsafePointer(raster.pixels), originalName: name)
+            }
+        case .tiff:
+            try raster.writeTIFF(to: temporary, colorSpace: CGColorSpace(name: CGColorSpace.linearITUR_2020)!)
+        }
         try Task.checkCancellation()
         try FileManager.default.moveItem(at: temporary, to: output)
         return output
     }
 
-    private func uniqueOutput(base: String, folder: URL) -> URL {
+    private func uniqueOutput(base: String, folder: URL, format: ExportFormat) -> URL {
         var number = 0
         while true {
             let suffix = number == 0 ? "" : "-\(number)"
-            let url = folder.appendingPathComponent("\(base)-denoised\(suffix).tiff")
+            let url = folder.appendingPathComponent("\(base)-denoised\(suffix).\(format.rawValue)")
             if !FileManager.default.fileExists(atPath: url.path) { return url }
             number += 1
         }

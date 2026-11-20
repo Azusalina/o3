@@ -1,10 +1,29 @@
 import XCTest
 import CoreML
 import CoreGraphics
+import CoreImage
 import ImageIO
 @testable import RawDenoise
 
 final class RawDenoiseTests: XCTestCase {
+    func testDNGIsRecognizedByAppleRAWDecoder() throws {
+        let width = 96, height = 129
+        let raster = try MappedRaster(width: width, height: height)
+        for index in 0..<(width * height * 3) { raster.pixels[index] = UInt16(10000 + index % 2000) }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dng")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try withExtendedLifetime(raster) {
+            try LinearDNGWriter.write(to: url, width: width, height: height,
+                                     pixels: UnsafePointer(raster.pixels), originalName: "sample.dng")
+        }
+        let raw = try XCTUnwrap(CIRAWFilter(imageURL: url))
+        let image = try XCTUnwrap(raw.outputImage)
+        XCTAssertEqual(image.extent.width, CGFloat(width))
+        XCTAssertEqual(image.extent.height, CGFloat(height))
+        let context = CIContext()
+        XCTAssertNotNil(context.createCGImage(image, from: image.extent))
+    }
+
     func testTilesCoverEdgesAndNormalize() {
         for length in [1, 63, 255, 256, 257, 448, 449, 512, 601, 6048] {
             let origins = TileLayout.origins(length: length)

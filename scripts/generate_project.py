@@ -3,6 +3,7 @@ import hashlib
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = (ROOT / "VERSION").read_text().strip()
 objects = {}
 
 
@@ -55,6 +56,7 @@ common = {"IPHONEOS_DEPLOYMENT_TARGET": "18.0", "SDKROOT": "iphoneos", "SWIFT_VE
           "TARGETED_DEVICE_FAMILY": '"1,2"', "CLANG_ENABLE_MODULES": "YES", "CLANG_ENABLE_OBJC_ARC": "YES"}
 project_config = configs("project", common)
 app_config = configs("app", {"PRODUCT_BUNDLE_IDENTIFIER": "com.example.RawDenoise", "PRODUCT_NAME": '"$(TARGET_NAME)"',
+                             "MARKETING_VERSION": VERSION, "CURRENT_PROJECT_VERSION": "2",
                              "INFOPLIST_FILE": "RawDenoise/Info.plist", "CODE_SIGN_STYLE": "Automatic",
                              "SWIFT_EMIT_LOC_STRINGS": "YES", "LD_RUNPATH_SEARCH_PATHS": '"$(inherited) @executable_path/Frameworks"'})
 test_config = configs("test", {"PRODUCT_BUNDLE_IDENTIFIER": "com.example.RawDenoiseTests", "PRODUCT_NAME": '"$(TARGET_NAME)"',

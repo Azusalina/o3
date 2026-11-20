@@ -4,12 +4,12 @@ Native SwiftUI app for **iOS / iPadOS 18.0 and above**. Select multiple RAW imag
 
 ## Run
 
-GitHub Actions builds and tests every push to `master`. Pushing a version tag such as `v1.0` also publishes a GitHub release with an **unsigned IPA**, release notes, and SHA-256 checksum. The IPA requires signing through a compatible sideloading tool before installation. No signing credentials are stored in this repository.
+GitHub Actions builds, tests, and releases every push to `master`. It reads the remote version tags, increments the latest patch version (for example, `v1.0` → `v1.0.1`), and publishes a new tag and release only after validation succeeds. The app version and IPA filename match that version. Existing releases are preserved. Manual version-tag builds are also supported. The **unsigned IPA** requires signing through a compatible sideloading tool before installation. No signing credentials are stored in this repository.
 
 1. Open `RawDenoise.xcodeproj` in Xcode 16 or newer on a Mac.
 2. Select the **RawDenoise** target. Set your signing team and a unique bundle identifier under Signing & Capabilities.
 3. Select your iPhone or iPad running iOS 18 or later and run.
-4. Tap **Select RAW files**, select the files, and tap **Denoise queued images**.
+4. Tap **Select RAW files**, select the files, choose **DNG** or **TIFF** under Output, and tap **Denoise queued images**.
 
 No Python, network access, server, or model download is required by the app. The converted model is checked in.
 
@@ -17,7 +17,9 @@ No Python, network access, server, or model download is required by the app. The
 
 Open **Files → Browse → On My iPhone / On My iPad → RawDenoise → denoised**. The folder is created automatically in the app's Documents directory, which is exposed to Files through `UIFileSharingEnabled` and `LSSupportsOpeningDocumentsInPlace`.
 
-Output is full-resolution **16-bit linear Rec.2020 RGB TIFF**, with an embedded color profile and upright image data. It is a developed image, not a new sensor RAW or DNG. Names follow `original-denoised.tiff`, with numeric suffixes for repeat exports. Original files are preserved. Removing the app also removes its local Documents folder; copy exports elsewhere in Files if needed.
+The default output is full-resolution **16-bit linear DNG**. This contains demosaiced, denoised Rec.2020 RGB samples with DNG LinearRaw tags, a D65 color matrix, neutral white balance, and explicit black/white levels. It preserves the processed linear data for RAW editors; it does not reconstruct the camera's original sensor mosaic. Source camera matrices are deliberately not copied because the pixel color space has changed. TIFF remains available with an embedded linear Rec.2020 profile.
+
+Names follow `original-denoised.dng` or `original-denoised.tiff`, with numeric suffixes for repeat exports. Original files are preserved. Removing the app also removes its local Documents folder; copy exports elsewhere in Files if needed.
 
 Keep the app in the foreground. Cancellation stops between tiles and before committing an export. Entering the background requests cancellation; an unfinished image remains queued for retry. A failed image shows its error and the queue continues with the next image. Clear the list and select a failed file again to retry it. Existing exports remain available after relaunch; the transient selection queue does not persist.
 
@@ -38,7 +40,9 @@ Performed in the Linux development environment:
 - Converted the real model to an iOS 18 ML Program and inspected its input/output names, shapes, and float32 types.
 - Executed the upstream PyTorch denoiser on a deterministic test image and generated a binary reference for the simulator's Core ML comparison.
 
-**Xcode build, Core ML inference on Apple hardware, RAW camera samples, Files visibility, visual quality, and device memory use have not been verified here.** This environment has no Apple SDK or simulator. The included GitHub Actions workflow builds the app and runs the hosted XCTest suite on macOS when pushed; it has not been triggered by this work.
+The [v1.0 GitHub Actions run](https://github.com/Azusalina/o3/actions/runs/44650314064) compiled and archived successfully using Xcode 16.4 and passed all four original simulator tests. The DNG workflow additionally compiles the real Swift writer into a command-line fixture generator, verifies its tags and pixel data using `tifffile` and LibRaw, and tests opening its output with Apple's RAW decoder in the simulator.
+
+**Physical-device RAW camera samples, Files visibility, visual quality in third-party editors, and device memory use remain unverified.** The local development environment has no Apple SDK or simulator; current Apple-platform validation runs through GitHub Actions.
 
 Run tests on a Mac with **Product → Test**, or:
 
@@ -48,7 +52,7 @@ xcodebuild -project RawDenoise.xcodeproj -scheme RawDenoise \
   CODE_SIGNING_ALLOWED=NO test
 ```
 
-Choose an installed simulator name. Tests cover awkward tile sizes and normalized overlap, TIFF bit depth and row/channel order, real Core ML inference against the upstream PyTorch reference, and pre-cancelled processing. Before distribution, also test camera RAWs and ProRAW, portrait/landscape orientation, provider imports, mixed valid/invalid batches, repeat filenames, cancellation, low storage, and representative large images on a physical iOS 18 device.
+Choose an installed simulator name. Tests cover awkward tile sizes and normalized overlap, TIFF bit depth and row/channel order, real Core ML inference against the upstream PyTorch reference, DNG decoding, and pre-cancelled processing. Before distribution, also test camera RAWs and ProRAW, portrait/landscape orientation, provider imports, mixed valid/invalid batches, repeat filenames, cancellation, low storage, and representative large images on a physical iOS 18 device.
 
 ## Reproduce the model
 
@@ -68,3 +72,4 @@ The converter downloads only the official weights and rejects a SHA-256 mismatch
 - [RawForge source and model registry](https://github.com/rymuelle/RawForge/tree/79f17700c29765b28a4cf5bd1b6d90bc7e3eb7f2), MIT, © 2025 rymuelle. License included in app resources at `RawDenoise/RawForge-LICENSE.txt`.
 - [Official source model release](https://github.com/rymuelle/RawRefinery/releases/tag/v1.2.1-alpha). SHA-256: `e05e460e02fbeb745ab2984edf4f4898c5035f6a475183be4ee16f52226b45b1`.
 - [Apple CIRAWFilter](https://developer.apple.com/documentation/coreimage/cirawfilter) and [Core ML conversion documentation](https://apple.github.io/coremltools/docs-guides/source/convert-to-ml-program.html).
+- [Adobe Digital Negative specification](https://helpx.adobe.com/content/dam/help/en/photoshop/pdf/DNG_Spec_1_7_1_0.pdf). The writer uses a DNG 1.4 header with backward compatibility 1.3 and uncompressed RGB16 strips.

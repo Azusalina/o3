@@ -19,6 +19,7 @@ final class DenoiseQueue {
     var isImporting = false
     var message: String?
     var outputFolder: URL?
+    var exportFormat: ExportFormat = .dng
     private var work: Task<Void, Never>?
     private let engine = RawDenoiser()
     private let staging = FileManager.default.temporaryDirectory.appendingPathComponent("RAW-imports", isDirectory: true)
@@ -71,6 +72,7 @@ final class DenoiseQueue {
     func start() {
         guard !isRunning, !isImporting, hasPending, let folder = outputFolder else { return }
         isRunning = true
+        let format = exportFormat
         UIApplication.shared.isIdleTimerDisabled = true
         work = Task {
             defer {
@@ -84,12 +86,12 @@ final class DenoiseQueue {
                 items[index].status = "Decoding RAW…"
                 items[index].progress = 0
                 do {
-                    let output = try await engine.denoise(source: item.source, name: item.name, folder: folder) { value in
+                    let output = try await engine.denoise(source: item.source, name: item.name, folder: folder, format: format) { value in
                         Task { @MainActor [weak self] in
                             guard let self, self.isRunning,
                                   let row = self.items.firstIndex(where: { $0.id == item.id }),
                                   self.items[row].progress != nil else { return }
-                            self.items[row].status = value < 1 ? "Denoising" : "Saving TIFF…"
+                            self.items[row].status = value < 1 ? "Denoising" : "Saving \(format.label)…"
                             self.items[row].progress = value
                         }
                     }
