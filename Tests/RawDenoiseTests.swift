@@ -7,7 +7,7 @@ import ImageIO
 
 final class RawDenoiseTests: XCTestCase {
     func testDNGIsRecognizedByAppleRAWDecoder() throws {
-        let width = 96, height = 129
+        let width = 512, height = 513
         let raster = try MappedRaster(width: width, height: height)
         for index in 0..<(width * height * 3) { raster.pixels[index] = UInt16(10000 + index % 2000) }
         let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".dng")

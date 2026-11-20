@@ -44,6 +44,8 @@ jobs:
           build/dng-check build/dng-validation.dng
           python3 -m pip install 'numpy<3' tifffile rawpy
           python3 scripts/verify_dng.py build/dng-validation.dng
+          swiftc RawDenoise/LinearDNGWriter.swift Tests/AppleDNGCheck.swift -o build/apple-dng-check
+          build/apple-dng-check build/apple-dng-validation.dng
       - name: Select an available iPhone simulator
         run: |
           DEVICE_ID=$(xcrun simctl list devices available -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next(x["udid"] for k,v in d["devices"].items() if "iOS" in k for x in v if "iPhone" in x["name"]))')
