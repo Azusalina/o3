@@ -1,0 +1,94 @@
+import XCTest
+import CoreML
+import CoreGraphics
+import ImageIO
+@testable import RawDenoise
+
+final class RawDenoiseTests: XCTestCase {
+    func testTilesCoverEdgesAndNormalize() {
+        for length in [1, 63, 255, 256, 257, 448, 449, 512, 601, 6048] {
+            let origins = TileLayout.origins(length: length)
+            XCTAssertEqual(origins.first, 0)
+            XCTAssertEqual(origins.last, max(0, length - 256))
+            XCTAssertEqual(Set(origins).count, origins.count)
+            let norm = TileLayout.normalization(length: length, origins: origins)
+            var reconstructed = [Float](repeating: 0, count: length)
+            for origin in origins {
+                for offset in 0..<min(256, length - origin) {
+                    let index = origin + offset
+                    reconstructed[index] += TileLayout.weight(offset) / norm[index]
+                }
+            }
+            for value in reconstructed { XCTAssertEqual(value, 1, accuracy: 0.00001) }
+        }
+    }
+
+    func testTIFFIsSixteenBitAndKeepsRows() throws {
+        let raster = try MappedRaster(width: 2, height: 2)
+        // Red top row, blue bottom row: detects row inversion and channel/byte-order errors.
+        let pixels: [UInt16] = [65535, 0, 0, 65535, 0, 0, 0, 0, 65535, 0, 0, 65535]
+        for index in pixels.indices { raster.pixels[index] = pixels[index] }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".tiff")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try raster.writeTIFF(to: url, colorSpace: CGColorSpace(name: CGColorSpace.linearITUR_2020)!)
+        let source = try XCTUnwrap(CGImageSourceCreateWithURL(url as CFURL, nil))
+        let image = try XCTUnwrap(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        XCTAssertEqual(image.width, 2)
+        XCTAssertEqual(image.height, 2)
+        XCTAssertEqual(image.bitsPerComponent, 16)
+        var bytes = [UInt8](repeating: 0, count: 16)
+        try bytes.withUnsafeMutableBytes { buffer in
+            let context = try XCTUnwrap(CGContext(data: buffer.baseAddress, width: 2, height: 2,
+                bitsPerComponent: 8, bytesPerRow: 8, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue))
+            context.draw(image, in: CGRect(x: 0, y: 0, width: 2, height: 2))
+        }
+        XCTAssertGreaterThan(bytes[0], 240)
+        XCTAssertLessThan(bytes[2], 15)
+        XCTAssertLessThan(bytes[8], 15)
+        XCTAssertGreaterThan(bytes[10], 240)
+    }
+
+    func testBundledModelRunsThroughCoreML() throws {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: "RawForgeSuperLight", withExtension: "mlmodelc"))
+        let config = MLModelConfiguration()
+        config.computeUnits = .cpuOnly
+        let model = try MLModel(contentsOf: url, configuration: config)
+        let image = try MLMultiArray(shape: [1, 3, 256, 256], dataType: .float32)
+        let ptr = image.dataPointer.assumingMemoryBound(to: Float.self)
+        for index in 0..<image.count { ptr[index] = Float((index * 37) % 251) / 1000 }
+        let condition = try MLMultiArray(shape: [1, 1], dataType: .float32)
+        condition[0] = 1
+        let features = try MLDictionaryFeatureProvider(dictionary: ["image": image, "conditioning": condition])
+        let result = try model.prediction(from: features)
+        let output = try XCTUnwrap(result.featureValue(for: "denoised")?.multiArrayValue)
+        XCTAssertEqual(output.shape.map(\.intValue), [1, 3, 256, 256])
+        let referenceURL = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "rawforge-reference", withExtension: "f32"))
+        let reference = try Data(contentsOf: referenceURL)
+        XCTAssertEqual(reference.count, output.count * 4)
+        var maxError: Float = 0
+        for index in 0..<output.count {
+            let value = output[index].floatValue
+            XCTAssertTrue(value.isFinite && value >= 0 && value <= 1)
+            let expected = reference.withUnsafeBytes { bytes in
+                Float(bitPattern: UInt32(littleEndian: bytes.loadUnaligned(fromByteOffset: index * 4, as: UInt32.self)))
+            }
+            maxError = max(maxError, abs(value - expected))
+        }
+        XCTAssertLessThan(maxError, 0.002, "Core ML must match upstream PyTorch")
+    }
+
+    func testCancelledProcessingWritesNothing() async throws {
+        let engine = RawDenoiser()
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await engine.denoise(source: URL(fileURLWithPath: "/missing.dng"), name: "missing.dng",
+                folder: FileManager.default.temporaryDirectory, progress: { _ in })
+        }
+        task.cancel()
+        do {
+            _ = try await task.value
+            XCTFail("Cancelled task must throw")
+        } catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+    }
+}
