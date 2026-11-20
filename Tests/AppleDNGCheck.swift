@@ -13,9 +13,12 @@ enum AppleDNGCheck {
                                      pixels: buffer.baseAddress!, originalName: "apple-check.dng")
         }
         guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-              let preview = CGImageSourceCreateImageAtIndex(source, 0, nil), preview.width <= 256 else {
-            throw NSError(domain: "DNGValidation", code: 1, userInfo: [NSLocalizedDescriptionKey: "Apple ImageIO could not decode DNG preview"])
+              let rendered = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw NSError(domain: "DNGValidation", code: 1, userInfo: [NSLocalizedDescriptionKey: "Apple ImageIO could not decode DNG"])
         }
+        // ImageIO may expose the developed main image at index zero rather than
+        // the thumbnail IFD. The independent TIFF test verifies the thumbnail.
+        print("Apple ImageIO decoded DNG: \(rendered.width) × \(rendered.height)")
         guard let filter = CIRAWFilter(imageURL: url), let image = filter.outputImage else {
             throw NSError(domain: "DNGValidation", code: 2, userInfo: [NSLocalizedDescriptionKey: "Apple RAW decoder rejected DNG"])
         }
@@ -24,6 +27,6 @@ enum AppleDNGCheck {
               CIContext().createCGImage(image, from: image.extent) != nil else {
             throw NSError(domain: "DNGValidation", code: 3, userInfo: [NSLocalizedDescriptionKey: "Apple RAW decoder did not render full-resolution DNG"])
         }
-        print("Apple DNG check passed: preview and full-resolution RAW rendering")
+        print("Apple DNG check passed: ImageIO decoding and full-resolution RAW rendering")
     }
 }
