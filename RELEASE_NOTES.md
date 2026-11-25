@@ -2,6 +2,8 @@ RawDenoise supports iOS and iPadOS 18 or later.
 
 DNG exports now include a full-resolution, high-quality sRGB JPEG preview for viewers such as Files and Photos, replacing the old 256-pixel thumbnail. The RGB16 linear RAW data remains in its separate SubIFD. Tile geometry is checked with a no-denoising round trip before release.
 
+Corrected reversed scanlines inside each denoising tile, which could scramble image regions and blur overlapping tiles.
+
 This update fixes the Files import handoff: the native picker requests local copies, dismisses before staging starts, and accepts provider files whose camera format is labeled as generic data. App-side staging runs off the main thread with per-file progress, cancellation, and visible errors. Originals remain unchanged.
 
 - Select multiple RAW images from Files and denoise them individually, one at a time.

@@ -34,6 +34,9 @@ enum LinearDNGWriter {
         let counts = (0..<stripCount).map { UInt32(min(rowsPerStrip, height - $0 * rowsPerStrip) * width * 6) }
 
         let preview = try makePreview(width: width, height: height, pixels: pixels)
+        guard UInt64(width) * UInt64(height) * 6 + UInt64(preview.data.count) + 65536 < UInt64(UInt32.max) else {
+            throw WriteError.invalidDimensions
+        }
         func previewEntries(offset: UInt32, rawIFD: UInt32) -> [Entry] {
             [
                 longs(254, [1]), longs(256, [UInt32(preview.width)]), longs(257, [UInt32(preview.height)]),

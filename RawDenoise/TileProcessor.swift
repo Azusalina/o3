@@ -16,7 +16,9 @@ enum TileProcessor {
                 try autoreleasepool {
                     let validWidth = min(256, width - x), validHeight = min(256, height - y)
                     var rgba = [Float](repeating: 0, count: 256 * 256 * 4)
-                    // CI coordinates run upwards. Reverse each rendered tile into top-first tensor rows.
+                    // Bounds use CI's bottom-left coordinates, but render(toBitmap:)
+                    // returns top-first scanlines. Reversing those scanlines would
+                    // flip each tile separately and blur/scramble overlap regions.
                     rgba.withUnsafeMutableBytes { bytes in
                         context.render(image, toBitmap: bytes.baseAddress!, rowBytes: 256 * 16,
                                        bounds: CGRect(x: x, y: height - y - validHeight,
@@ -25,7 +27,7 @@ enum TileProcessor {
                     }
                     let input = tile.dataPointer.assumingMemoryBound(to: Float.self)
                     for row in 0..<256 {
-                        let sourceRow = validHeight - 1 - min(row, validHeight - 1)
+                        let sourceRow = min(row, validHeight - 1)
                         for column in 0..<256 {
                             let sourceColumn = min(column, validWidth - 1)
                             for channel in 0..<3 {
