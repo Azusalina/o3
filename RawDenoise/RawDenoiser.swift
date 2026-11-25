@@ -19,21 +19,27 @@ enum DenoiseError: LocalizedError {
 
 actor RawDenoiser {
     private var model: MLModel?
+    private var loadedSelection: DenoiseModel?
     private let colorSpace = CGColorSpace(name: CGColorSpace.extendedLinearITUR_2020)!
     private lazy var context = CIContext(options: [
         .workingColorSpace: colorSpace, .cacheIntermediates: false
     ])
 
     func denoise(source: URL, name: String, folder: URL, format: ExportFormat = .dng,
+                 selection: DenoiseModel = .superLight,
                  progress: @escaping @Sendable (Double) -> Void) async throws -> URL {
         try Task.checkCancellation()
-        if model == nil {
-            guard let url = Bundle.main.url(forResource: "RawForgeSuperLight", withExtension: "mlmodelc") else {
+        if model == nil || loadedSelection != selection {
+            // Release the previous network before loading another; keep one model resident.
+            model = nil
+            loadedSelection = nil
+            guard let url = Bundle.main.url(forResource: selection.resourceName, withExtension: "mlmodelc") else {
                 throw DenoiseError.missingModel
             }
             let configuration = MLModelConfiguration()
             configuration.computeUnits = .all
             model = try MLModel(contentsOf: url, configuration: configuration)
+            loadedSelection = selection
         }
         guard let model, let raw = CIRAWFilter(imageURL: source) else { throw DenoiseError.unsupportedRAW }
         defer { context.clearCaches() }

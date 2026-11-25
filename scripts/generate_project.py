@@ -43,15 +43,15 @@ def configs(key, settings):
 
 
 swift = [file(str(p.relative_to(ROOT)), "sourcecode.swift") for p in sorted((ROOT / "RawDenoise").glob("*.swift"))]
-model = file("RawDenoise/Models/RawForgeSuperLight.mlpackage", "folder.mlpackage")
+models = [file(str(p.relative_to(ROOT)), "folder.mlpackage") for p in sorted((ROOT / "RawDenoise/Models").glob("*.mlpackage"))]
 license_ref = file("RawDenoise/RawForge-LICENSE.txt", "text")
 info_ref = file("RawDenoise/Info.plist", "text.plist.xml")
 test = file("Tests/RawDenoiseTests.swift", "sourcecode.swift")
-fixture = file("Tests/Fixtures/rawforge-reference.f32", "file")
+fixtures = [file(str(p.relative_to(ROOT)), "file") for p in sorted((ROOT / "Tests/Fixtures").glob("*.f32"))]
 app_product = add("appproduct", 'isa = PBXFileReference; explicitFileType = wrapper.application; path = RawDenoise.app; sourceTree = BUILT_PRODUCTS_DIR;')
 test_product = add("testproduct", 'isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = RawDenoiseTests.xctest; sourceTree = BUILT_PRODUCTS_DIR;')
 products = add("products", f"isa = PBXGroup; children = {array([app_product, test_product])}; name = Products; sourceTree = \"<group>\";")
-group = add("main", f"isa = PBXGroup; children = {array(swift + [model, license_ref, info_ref, test, fixture, products])}; sourceTree = \"<group>\";")
+group = add("main", f"isa = PBXGroup; children = {array(swift + models + [license_ref, info_ref, test, products] + fixtures)}; sourceTree = \"<group>\";")
 common = {"IPHONEOS_DEPLOYMENT_TARGET": "18.0", "SDKROOT": "iphoneos", "SWIFT_VERSION": "5.0",
           "TARGETED_DEVICE_FAMILY": '"1,2"', "CLANG_ENABLE_MODULES": "YES", "CLANG_ENABLE_OBJC_ARC": "YES"}
 project_config = configs("project", common)
@@ -62,8 +62,8 @@ app_config = configs("app", {"PRODUCT_BUNDLE_IDENTIFIER": "com.example.RawDenois
 test_config = configs("test", {"PRODUCT_BUNDLE_IDENTIFIER": "com.example.RawDenoiseTests", "PRODUCT_NAME": '"$(TARGET_NAME)"',
                                "GENERATE_INFOPLIST_FILE": "YES", "TEST_HOST": '"$(BUILT_PRODUCTS_DIR)/RawDenoise.app/RawDenoise"',
                                "BUNDLE_LOADER": '"$(TEST_HOST)"', "LD_RUNPATH_SEARCH_PATHS": '"$(inherited) @executable_path/Frameworks @loader_path/Frameworks"'})
-app_phases = [phase("appsource", "PBXSourcesBuildPhase", swift + [model]), phase("appresource", "PBXResourcesBuildPhase", [license_ref]), phase("appframeworks", "PBXFrameworksBuildPhase", [])]
-test_phases = [phase("testsource", "PBXSourcesBuildPhase", [test]), phase("testframeworks", "PBXFrameworksBuildPhase", []), phase("testresources", "PBXResourcesBuildPhase", [fixture])]
+app_phases = [phase("appsource", "PBXSourcesBuildPhase", swift + models), phase("appresource", "PBXResourcesBuildPhase", [license_ref]), phase("appframeworks", "PBXFrameworksBuildPhase", [])]
+test_phases = [phase("testsource", "PBXSourcesBuildPhase", [test]), phase("testframeworks", "PBXFrameworksBuildPhase", []), phase("testresources", "PBXResourcesBuildPhase", fixtures)]
 app_target = add("apptarget", f'isa = PBXNativeTarget; buildConfigurationList = {app_config}; buildPhases = {array(app_phases)}; buildRules = (); dependencies = (); name = RawDenoise; productName = RawDenoise; productReference = {app_product}; productType = "com.apple.product-type.application";')
 proxy = add("proxy", f"isa = PBXContainerItemProxy; containerPortal = {ident('project')}; proxyType = 1; remoteGlobalIDString = {app_target}; remoteInfo = RawDenoise;")
 dependency = add("dependency", f"isa = PBXTargetDependency; target = {app_target}; targetProxy = {proxy};")

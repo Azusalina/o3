@@ -1,4 +1,4 @@
-"""Convert RawForge's signed TorchScript Super Light model to an iOS 18 ML Program."""
+"""Convert an official RawForge TorchScript TreeNet model to an iOS 18 ML Program."""
 import argparse
 import hashlib
 import json
@@ -9,20 +9,22 @@ import coremltools as ct
 import numpy as np
 import torch
 
-URL = "https://github.com/rymuelle/RawRefinery/releases/download/v1.2.1-alpha/ShadowWeightedL1_super_light.pt"
-SHA256 = "e05e460e02fbeb745ab2984edf4f4898c5035f6a475183be4ee16f52226b45b1"
 ROOT = Path(__file__).resolve().parents[1]
+CATALOG = json.loads((ROOT / "scripts/model_catalog.json").read_text())
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--weights", type=Path, default=ROOT / ".model-cache/model.pt")
+    parser.add_argument("--weights", type=Path)
+    parser.add_argument("--model", choices=list(CATALOG), default="superlight")
     parser.add_argument("--verify", action="store_true", help="Compare Core ML with Torch; requires macOS")
     args = parser.parse_args()
+    entry = CATALOG[args.model]
+    args.weights = args.weights or ROOT / ".model-cache" / entry["filename"]
     if not args.weights.exists():
         args.weights.parent.mkdir(parents=True, exist_ok=True)
-        urllib.request.urlretrieve(URL, args.weights)
-    if hashlib.sha256(args.weights.read_bytes()).hexdigest() != SHA256:
+        urllib.request.urlretrieve(entry["url"], args.weights)
+    if hashlib.sha256(args.weights.read_bytes()).hexdigest() != entry["sha256"]:
         raise RuntimeError("Upstream model checksum mismatch")
     torch.set_num_threads(2)
     model = torch.jit.load(str(args.weights), map_location="cpu").float().eval()
@@ -37,11 +39,11 @@ def main():
     )
     converted.author = "RawForge / rymuelle"
     converted.license = "MIT"
-    converted.short_description = "RawForge TreeNetDenoiseSuperLight; linear Rec.2020 RGB, ISO / 6400"
+    converted.short_description = f"RawForge TreeNet {args.model}; linear Rec.2020 RGB, ISO / 6400"
     converted.input_description["image"] = "NCHW linear Rec.2020 RGB in [0,1]; 256×256"
     converted.input_description["conditioning"] = "min(ISO, 65535) / 6400"
-    converted.user_defined_metadata["upstream_sha256"] = SHA256
-    output = ROOT / "RawDenoise/Models/RawForgeSuperLight.mlpackage"
+    converted.user_defined_metadata["upstream_sha256"] = entry["sha256"]
+    output = ROOT / "RawDenoise/Models" / (entry["bundle"] + ".mlpackage")
     converted.save(str(output))
     if args.verify:
         rng = np.random.default_rng(42)
@@ -56,7 +58,7 @@ def main():
             errors.append({"iso": iso, "max_absolute_error": error})
             if not np.isfinite(actual).all() or error > 0.002:
                 raise RuntimeError(f"Core ML parity failed at ISO {iso}: {error}")
-        (ROOT / "model-parity.json").write_text(json.dumps(errors, indent=2) + "\n")
+        (ROOT / f"{args.model}-model-parity.json").write_text(json.dumps(errors, indent=2) + "\n")
     print(f"Saved {output}")
 
 

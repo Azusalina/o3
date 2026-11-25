@@ -22,6 +22,9 @@ final class DenoiseQueue {
     var message: String?
     var outputFolder: URL?
     var exportFormat: ExportFormat = .dng
+    var denoiseModel: DenoiseModel = DenoiseModel(rawValue: UserDefaults.standard.string(forKey: "denoiseModel") ?? "") ?? .superLight {
+        didSet { UserDefaults.standard.set(denoiseModel.rawValue, forKey: "denoiseModel") }
+    }
     private var work: Task<Void, Never>?
     private var importWork: Task<Void, Never>?
     private let engine = RawDenoiser()
@@ -71,6 +74,7 @@ final class DenoiseQueue {
         guard !isRunning, !isImporting, hasPending, let folder = outputFolder else { return }
         isRunning = true
         let format = exportFormat
+        let selection = denoiseModel
         UIApplication.shared.isIdleTimerDisabled = true
         work = Task {
             defer {
@@ -81,20 +85,20 @@ final class DenoiseQueue {
             for index in items.indices where items[index].pending {
                 if Task.isCancelled { break }
                 let item = items[index]
-                items[index].status = "Decoding RAW…"
+                items[index].status = "Decoding RAW · \(selection.label)…"
                 items[index].progress = 0
                 do {
-                    let output = try await engine.denoise(source: item.source, name: item.name, folder: folder, format: format) { value in
+                    let output = try await engine.denoise(source: item.source, name: item.name, folder: folder, format: format, selection: selection) { value in
                         Task { @MainActor [weak self] in
                             guard let self, self.isRunning,
                                   let row = self.items.firstIndex(where: { $0.id == item.id }),
                                   self.items[row].progress != nil else { return }
-                            self.items[row].status = value < 1 ? "Denoising" : "Saving \(format.label)…"
+                            self.items[row].status = value < 1 ? "Denoising · \(selection.label)" : "Saving \(format.label)…"
                             self.items[row].progress = value
                         }
                     }
                     items[index].output = output
-                    items[index].status = "Saved · \(output.lastPathComponent)"
+                    items[index].status = "Saved · \(selection.label) · \(output.lastPathComponent)"
                     items[index].pending = false
                     try? FileManager.default.removeItem(at: item.source)
                 } catch is CancellationError {

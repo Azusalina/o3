@@ -16,6 +16,15 @@ struct ContentView: View {
                     Text("Select several files at once. Each image is denoised separately on this device.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                Section("Denoising") {
+                    Picker("TreeNet model", selection: $queue.denoiseModel) {
+                        ForEach(DenoiseModel.allCases) { model in
+                            Text(model.label).tag(model)
+                        }
+                    }.disabled(queue.isRunning)
+                    Text("The selected model is used for each image in the batch. All four models work offline.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section("Output") {
                     Picker("Export format", selection: $queue.exportFormat) {
                         ForEach(ExportFormat.allCases) { format in
@@ -58,7 +67,7 @@ struct ContentView: View {
                     }
                 }
                 Section {
-                    Text("Uses RawForge TreeNet Super Light through Core ML. Keep the app open while processing. RAW support depends on your iOS version and camera.")
+                    Text("Uses RawForge TreeNet through Core ML. Keep the app open while processing. RAW support depends on your iOS version and camera.")
                         .font(.footnote).foregroundStyle(.secondary)
                     Text("RawForge © 2025 rymuelle · MIT License")
                         .font(.caption).foregroundStyle(.secondary)

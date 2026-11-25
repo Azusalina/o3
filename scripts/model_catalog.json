@@ -1,0 +1,26 @@
+{
+  "general": {
+    "bundle": "RawForgeGeneral",
+    "filename": "ShadowWeightedL1.pt",
+    "url": "https://github.com/rymuelle/RawRefinery/releases/download/v1.2.1-alpha/ShadowWeightedL1.pt",
+    "sha256": "eb65f9703aef24f2bf35082a93e8caafd38d0953a2e6557e7c37b77d483fca05"
+  },
+  "light": {
+    "bundle": "RawForgeLight",
+    "filename": "ShadowWeightedL1_light.pt",
+    "url": "https://github.com/rymuelle/RawRefinery/releases/download/v1.2.1-alpha/ShadowWeightedL1_light.pt",
+    "sha256": "303906eaa78d36d514873ce4286cfdebf81e737ed0f8d14fd52e641daf5ae434"
+  },
+  "superlight": {
+    "bundle": "RawForgeSuperLight",
+    "filename": "ShadowWeightedL1_super_light.pt",
+    "url": "https://github.com/rymuelle/RawRefinery/releases/download/v1.2.1-alpha/ShadowWeightedL1_super_light.pt",
+    "sha256": "e05e460e02fbeb745ab2984edf4f4898c5035f6a475183be4ee16f52226b45b1"
+  },
+  "heavy": {
+    "bundle": "RawForgeHeavy",
+    "filename": "ShadowWeightedL1_24_deep_500.pt",
+    "url": "https://github.com/rymuelle/RawRefinery/releases/download/v1.2.1-alpha/ShadowWeightedL1_24_deep_500.pt",
+    "sha256": "d58cc81b3b395dfc885dc3ce18d9e59d2a6b25168e244923159b6c112544d091"
+  }
+}

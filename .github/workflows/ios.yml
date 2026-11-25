@@ -37,7 +37,7 @@ jobs:
       - name: Check tile geometry without denoising
         run: |
           mkdir -p build
-          swiftc RawDenoise/RawDenoiser.swift RawDenoise/TileProcessor.swift RawDenoise/TileLayout.swift RawDenoise/MappedRaster.swift RawDenoise/ExportFormat.swift RawDenoise/LinearDNGWriter.swift Tests/TileGeometryCheck.swift -o build/tile-geometry-check
+          swiftc RawDenoise/DenoiseModel.swift RawDenoise/RawDenoiser.swift RawDenoise/TileProcessor.swift RawDenoise/TileLayout.swift RawDenoise/MappedRaster.swift RawDenoise/ExportFormat.swift RawDenoise/LinearDNGWriter.swift Tests/TileGeometryCheck.swift -o build/tile-geometry-check
           build/tile-geometry-check
       - uses: actions/setup-python@v5
         with:

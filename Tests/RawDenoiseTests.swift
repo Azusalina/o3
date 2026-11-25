@@ -128,8 +128,13 @@ final class RawDenoiseTests: XCTestCase {
         XCTAssertGreaterThan(bytes[10], 240)
     }
 
-    func testBundledModelRunsThroughCoreML() throws {
-        let url = try XCTUnwrap(Bundle.main.url(forResource: "RawForgeSuperLight", withExtension: "mlmodelc"))
+    func testBundledModelRunsThroughCoreML() throws { try checkModel(.superLight) }
+    func testGeneralModelMatchesUpstream() throws { try checkModel(.general) }
+    func testLightModelMatchesUpstream() throws { try checkModel(.light) }
+    func testHeavyModelMatchesUpstream() throws { try checkModel(.heavy) }
+
+    private func checkModel(_ selection: DenoiseModel) throws {
+        let url = try XCTUnwrap(Bundle.main.url(forResource: selection.resourceName, withExtension: "mlmodelc"))
         let config = MLModelConfiguration()
         config.computeUnits = .cpuOnly
         let model = try MLModel(contentsOf: url, configuration: config)
@@ -142,7 +147,8 @@ final class RawDenoiseTests: XCTestCase {
         let result = try model.prediction(from: features)
         let output = try XCTUnwrap(result.featureValue(for: "denoised")?.multiArrayValue)
         XCTAssertEqual(output.shape.map(\.intValue), [1, 3, 256, 256])
-        let referenceURL = try XCTUnwrap(Bundle(for: Self.self).url(forResource: "rawforge-reference", withExtension: "f32"))
+        let referenceName = selection == .superLight ? "rawforge" : selection.rawValue
+        let referenceURL = try XCTUnwrap(Bundle(for: Self.self).url(forResource: referenceName + "-reference", withExtension: "f32"))
         let reference = try Data(contentsOf: referenceURL)
         XCTAssertEqual(reference.count, output.count * 4)
         var maxError: Float = 0
@@ -154,7 +160,7 @@ final class RawDenoiseTests: XCTestCase {
             }
             maxError = max(maxError, abs(value - expected))
         }
-        XCTAssertLessThan(maxError, 0.002, "Core ML must match upstream PyTorch")
+        XCTAssertLessThan(maxError, 0.002, "\(selection.label) Core ML must match upstream PyTorch")
     }
 
     func testCancelledProcessingWritesNothing() async throws {
