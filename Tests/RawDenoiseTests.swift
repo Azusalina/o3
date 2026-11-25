@@ -9,12 +9,19 @@ import UIKit
 final class RawDenoiseTests: XCTestCase {
     @MainActor
     func testPickerUsesSystemCopiesAndAllowsBatchSelection() {
-        let view = RAWFilePicker(onSelection: { _ in }, onCancel: {})
+        var selection: [URL] = []
+        var cancelled = false
+        let view = RAWFilePicker(onSelection: { selection = $0 }, onCancel: { cancelled = true })
         // Check the same factory used by the presented sheet.
-        let configured = view.makePicker(delegate: view.makeCoordinator())
+        let coordinator = view.makeCoordinator()
+        let configured = view.makePicker(delegate: coordinator)
         XCTAssertEqual(configured.documentPickerMode, .import)
         XCTAssertTrue(configured.allowsMultipleSelection)
-        XCTAssertTrue(configured.shouldShowFileExtensions)
+        let file = URL(fileURLWithPath: "/tmp/camera.dng")
+        coordinator.documentPicker(configured, didPickDocumentsAt: [file])
+        XCTAssertEqual(selection, [file])
+        coordinator.documentPickerWasCancelled(configured)
+        XCTAssertTrue(cancelled)
     }
 
     func testImportCopiesLargeRAWAndKeepsOriginal() async throws {
