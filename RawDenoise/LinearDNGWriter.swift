@@ -1,4 +1,6 @@
 import Foundation
+import CoreImage
+import ImageIO
 
 /// Uncompressed, little-endian DNG 1.4 with an sRGB preview and LinearRaw RGB SubIFD.
 /// The pixels already contain white-balanced linear Rec.2020, so the profile describes
@@ -31,11 +33,11 @@ enum LinearDNGWriter {
         let stripCount = (height + rowsPerStrip - 1) / rowsPerStrip
         let counts = (0..<stripCount).map { UInt32(min(rowsPerStrip, height - $0 * rowsPerStrip) * width * 6) }
 
-        let preview = makePreview(width: width, height: height, pixels: pixels)
+        let preview = try makePreview(width: width, height: height, pixels: pixels)
         func previewEntries(offset: UInt32, rawIFD: UInt32) -> [Entry] {
             [
                 longs(254, [1]), longs(256, [UInt32(preview.width)]), longs(257, [UInt32(preview.height)]),
-                shorts(258, [8, 8, 8]), shorts(259, [1]), shorts(262, [2]),
+                shorts(258, [8, 8, 8]), shorts(259, [7]), shorts(262, [6]),
                 ascii(271, "RawDenoise"), ascii(272, "Linear Rec.2020"),
                 longs(273, [offset]), shorts(274, [1]), shorts(277, [3]),
                 longs(278, [UInt32(preview.height)]), longs(279, [UInt32(preview.data.count)]),
@@ -128,29 +130,24 @@ enum LinearDNGWriter {
     }
 
     private static func makePreview(width: Int, height: Int, pixels: UnsafePointer<UInt16>)
-        -> (width: Int, height: Int, data: Data) {
-        let edge = max(1, min(256, max(width, height) / 2))
-        let scale = Double(edge) / Double(max(width, height))
-        let w = max(1, Int(Double(width) * scale)), h = max(1, Int(Double(height) * scale))
-        var data = Data(capacity: w * h * 3)
-        func encode(_ linear: Double) -> UInt8 {
-            let value = min(1, max(0, linear))
-            let encoded = value <= 0.0031308 ? 12.92 * value : 1.055 * pow(value, 1 / 2.4) - 0.055
-            return UInt8((encoded * 255).rounded())
+        throws -> (width: Int, height: Int, data: Data) {
+        try Task.checkCancellation()
+        let space = CGColorSpace(name: CGColorSpace.linearITUR_2020)!
+        guard let provider = CGDataProvider(dataInfo: nil, data: pixels, size: width * height * 6,
+                                            releaseData: { _, _, _ in }),
+              let image = CGImage(width: width, height: height, bitsPerComponent: 16, bitsPerPixel: 48,
+                bytesPerRow: width * 6, space: space, bitmapInfo: .byteOrder16Little,
+                provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent) else {
+            throw WriteError.cannotCreate
         }
-        for y in 0..<h {
-            for x in 0..<w {
-                let index = ((y * height / h) * width + x * width / w) * 3
-                let r = Double(pixels[index]) / 65535
-                let g = Double(pixels[index + 1]) / 65535
-                let b = Double(pixels[index + 2]) / 65535
-                // Linear Rec.2020 -> linear sRGB, then the sRGB transfer function.
-                data.append(encode(1.660491 * r - 0.587641 * g - 0.072850 * b))
-                data.append(encode(-0.124550 * r + 1.132900 * g - 0.008349 * b))
-                data.append(encode(-0.018151 * r - 0.100579 * g + 1.118730 * b))
-            }
-        }
-        return (w, h, data)
+        let temporary = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".jpg")
+        defer { try? FileManager.default.removeItem(at: temporary) }
+        let context = CIContext(options: [.workingColorSpace: space, .cacheIntermediates: false])
+        try context.writeJPEGRepresentation(of: CIImage(cgImage: image), to: temporary,
+            colorSpace: CGColorSpace(name: CGColorSpace.sRGB)!,
+            options: [CIImageRepresentationOption(rawValue: kCGImageDestinationLossyCompressionQuality as String): 0.98])
+        try Task.checkCancellation()
+        return (width, height, try Data(contentsOf: temporary))
     }
 
     private static func bytes(_ tag: UInt16, _ values: [UInt8]) -> Entry {

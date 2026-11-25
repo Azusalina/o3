@@ -34,6 +34,11 @@ jobs:
       - uses: actions/checkout@v4
       - name: Show Xcode version
         run: xcodebuild -version
+      - name: Check tile geometry without denoising
+        run: |
+          mkdir -p build
+          swiftc RawDenoise/RawDenoiser.swift RawDenoise/TileProcessor.swift RawDenoise/TileLayout.swift RawDenoise/MappedRaster.swift RawDenoise/ExportFormat.swift RawDenoise/LinearDNGWriter.swift Tests/TileGeometryCheck.swift -o build/tile-geometry-check
+          build/tile-geometry-check
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -42,7 +47,7 @@ jobs:
           mkdir -p build
           swiftc RawDenoise/LinearDNGWriter.swift Tests/DNGExportCheck.swift -o build/dng-check
           build/dng-check build/dng-validation.dng
-          python3 -m pip install 'numpy<3' tifffile rawpy
+          python3 -m pip install 'numpy<3' tifffile rawpy imagecodecs
           python3 scripts/verify_dng.py build/dng-validation.dng
           swiftc RawDenoise/LinearDNGWriter.swift Tests/AppleDNGCheck.swift -o build/apple-dng-check
           build/apple-dng-check build/apple-dng-validation.dng

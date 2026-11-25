@@ -9,8 +9,10 @@ y, x, c = np.indices((129, 96, 3), dtype=np.uint32)
 expected = ((y * 997 + x * 37 + c * 10007) % 65536).astype(np.uint16)
 with tifffile.TiffFile(path) as file:
     root = file.pages[0]
-    assert root.photometric == 2 and root.bitspersample == 8
-    assert root.asarray().shape[2] == 3
+    assert root.photometric == 6 and root.bitspersample == 8
+    assert root.compression == 7
+    assert root.shape == expected.shape
+    assert root.asarray().shape == expected.shape
     assert 330 in root.tags and len(root.pages) == 1
     page = root.pages[0]
     tags = page.tags
