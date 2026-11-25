@@ -17,10 +17,13 @@ final class DenoiseQueue {
     var items: [QueueItem] = []
     var isRunning = false
     var isImporting = false
+    var importStatus = ""
+    var importProgress: Double = 0
     var message: String?
     var outputFolder: URL?
     var exportFormat: ExportFormat = .dng
     private var work: Task<Void, Never>?
+    private var importWork: Task<Void, Never>?
     private let engine = RawDenoiser()
     private let staging = FileManager.default.temporaryDirectory.appendingPathComponent("RAW-imports", isDirectory: true)
 
@@ -42,30 +45,25 @@ final class DenoiseQueue {
         guard !isRunning, !isImporting else { return }
         isImporting = true
         let directory = staging
-        Task {
-            for url in urls {
+        importWork = Task {
+            defer { isImporting = false; importWork = nil; importStatus = "" }
+            var failures: [String] = []
+            for (index, url) in urls.enumerated() {
+                if Task.isCancelled { break }
+                importStatus = "Importing \(index + 1) of \(urls.count): \(url.lastPathComponent)"
+                importProgress = 0
                 do {
-                    // Await the copy before processing another input; never load a whole batch in memory.
-                    let local = try await Task.detached(priority: .userInitiated) {
-                        let scoped = url.startAccessingSecurityScopedResource()
-                        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
-                        let destination = directory.appendingPathComponent(UUID().uuidString)
-                            .appendingPathExtension(url.pathExtension)
-                        let coordinator = NSFileCoordinator()
-                        var coordinationError: NSError?
-                        var copyError: Error?
-                        coordinator.coordinate(readingItemAt: url, options: [], error: &coordinationError) { readable in
-                            do { try FileManager.default.copyItem(at: readable, to: destination) }
-                            catch { copyError = error }
+                    let local = try await RawFileImporter.copy(source: url, directory: directory) { value in
+                        Task { @MainActor [weak self] in
+                            guard let self, self.isImporting else { return }
+                            self.importProgress = value
                         }
-                        if let error = coordinationError { throw error }
-                        if let error = copyError { throw error }
-                        return destination
-                    }.value
+                    }
                     items.append(QueueItem(source: local, name: url.lastPathComponent))
-                } catch { message = "Could not import \(url.lastPathComponent): \(error.localizedDescription)" }
+                } catch is CancellationError { break }
+                catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
             }
-            isImporting = false
+            if !failures.isEmpty { message = failures.joined(separator: "\n\n") }
         }
     }
 
@@ -112,7 +110,7 @@ final class DenoiseQueue {
         }
     }
 
-    func cancel() { work?.cancel() }
+    func cancel() { work?.cancel(); importWork?.cancel() }
 
     func clear() {
         guard !isRunning, !isImporting else { return }

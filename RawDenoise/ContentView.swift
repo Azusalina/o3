@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @State private var queue = DenoiseQueue()
     @State private var selecting = false
+    @State private var selectedURLs: [URL] = []
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -51,7 +52,10 @@ struct ContentView: View {
                         Button("Clear list", role: .destructive) { queue.clear() }
                             .disabled(queue.isImporting)
                     }
-                    if queue.isImporting { ProgressView("Copying selected files…") }
+                    if queue.isImporting {
+                        ProgressView(queue.importStatus, value: queue.importProgress)
+                        Button("Cancel import", role: .destructive) { queue.cancel() }
+                    }
                 }
                 Section {
                     Text("Uses RawForge TreeNet Super Light through Core ML. Keep the app open while processing. RAW support depends on your iOS version and camera.")
@@ -61,11 +65,18 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("RawDenoise")
-            .fileImporter(isPresented: $selecting, allowedContentTypes: [.rawImage], allowsMultipleSelection: true) { result in
-                switch result {
-                case .success(let urls): queue.importFiles(urls)
-                case .failure(let error): queue.message = error.localizedDescription
-                }
+            .sheet(isPresented: $selecting, onDismiss: {
+                let urls = selectedURLs
+                selectedURLs = []
+                if !urls.isEmpty { queue.importFiles(urls) }
+            }) {
+                RAWFilePicker(onSelection: { urls in
+                    selectedURLs = urls
+                    selecting = false
+                }, onCancel: {
+                    selectedURLs = []
+                    selecting = false
+                })
             }
             .alert("RawDenoise", isPresented: Binding(get: { queue.message != nil }, set: { if !$0 { queue.message = nil } })) {
                 Button("OK") { queue.message = nil }

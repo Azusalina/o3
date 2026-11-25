@@ -3,10 +3,60 @@ import CoreML
 import CoreGraphics
 import CoreImage
 import ImageIO
+import UIKit
 @testable import RawDenoise
 
 final class RawDenoiseTests: XCTestCase {
-    func testDNGIsRecognizedByAppleRAWDecoder() throws {
+    @MainActor
+    func testPickerUsesSystemCopiesAndAllowsBatchSelection() {
+        let view = RAWFilePicker(onSelection: { _ in }, onCancel: {})
+        // Check the same factory used by the presented sheet.
+        let configured = view.makePicker(delegate: view.makeCoordinator())
+        XCTAssertEqual(configured.documentPickerMode, .import)
+        XCTAssertTrue(configured.allowsMultipleSelection)
+        XCTAssertTrue(configured.shouldShowFileExtensions)
+    }
+
+    func testImportCopiesLargeRAWAndKeepsOriginal() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("camera.CR3")
+        let bytes = Data(repeating: 123, count: 2_500_000)
+        try bytes.write(to: source)
+        let copied = try await RawFileImporter.copy(source: source, directory: directory.appendingPathComponent("imports"), progress: { _ in })
+        XCTAssertNotEqual(source, copied)
+        XCTAssertEqual(copied.pathExtension, "CR3")
+        XCTAssertEqual(try Data(contentsOf: copied), bytes)
+        XCTAssertEqual(try Data(contentsOf: source), bytes)
+    }
+
+    func testImportRejectsEmptyAndNonRAWFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        for name in ["empty.dng", "photo.jpg"] {
+            let source = directory.appendingPathComponent(name)
+            try Data().write(to: source)
+            do {
+                _ = try await RawFileImporter.copy(source: source, directory: directory.appendingPathComponent("imports"), progress: { _ in })
+                XCTFail("Invalid input should fail")
+            } catch is RawFileImporter.ImportError {} catch { XCTFail("Unexpected error: \(error)") }
+        }
+    }
+
+    func testCancelledImportCreatesNoPartialFile() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await RawFileImporter.copy(source: directory.appendingPathComponent("sample.dng"), directory: directory, progress: { _ in })
+        }
+        do { _ = try await task.value; XCTFail("Cancelled import should fail") }
+        catch is CancellationError {} catch { XCTFail("Unexpected error: \(error)") }
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.path))
+    }
+
+    func testDNGIsRecognizedByAppleRAWDecoder() async throws {
         let width = 512, height = 513
         let raster = try MappedRaster(width: width, height: height)
         for index in 0..<(width * height * 3) { raster.pixels[index] = UInt16(10000 + index % 2000) }
@@ -16,7 +66,10 @@ final class RawDenoiseTests: XCTestCase {
             try LinearDNGWriter.write(to: url, width: width, height: height,
                                      pixels: UnsafePointer(raster.pixels), originalName: "sample.dng")
         }
-        let raw = try XCTUnwrap(CIRAWFilter(imageURL: url))
+        let importedDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: importedDirectory) }
+        let copied = try await RawFileImporter.copy(source: url, directory: importedDirectory, progress: { _ in })
+        let raw = try XCTUnwrap(CIRAWFilter(imageURL: copied))
         let image = try XCTUnwrap(raw.outputImage)
         XCTAssertEqual(image.extent.width, CGFloat(width))
         XCTAssertEqual(image.extent.height, CGFloat(height))

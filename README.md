@@ -25,7 +25,7 @@ Keep the app in the foreground. Cancellation stops between tiles and before comm
 
 ## Pipeline and boundaries
 
-- RAW selection uses the system Files importer with multiple selection and the RAW image content type. Selected files are copied sequentially into temporary app storage using security-scoped access and file coordination, including provider-backed files.
+- RAW selection uses a native Files picker in copy/import mode with multiple selection. Generic data files are selectable to accommodate camera extensions that providers do not label as RAW; non-RAW extensions are rejected with an error. Files materializes provider documents before handing over local copies. After the picker dismisses, a background worker stages files sequentially in chunks with progress and cancellation, without a second coordinated provider read.
 - Apple `CIRAWFilter` decodes at full size with tone boosts, sharpening, and supported noise reduction controls disabled. The model receives clipped linear Rec.2020 RGB, not an embedded JPEG preview. RAW/camera compatibility follows Apple's decoder on the installed OS.
 - The bundled model is RawForge **TreeNetDenoiseSuperLight**, converted from the official signed `ShadowWeightedL1_super_light.pt` release. Inputs are float32 NCHW `[1,3,256,256]` and conditioning `[1,1] = min(ISO,65535)/6400`. Missing ISO metadata defaults to ISO 100.
 - Core ML uses `.all` compute units, allowing the system to choose available hardware. This does not promise Neural Engine placement. Model arithmetic is float32 to prioritize fidelity.

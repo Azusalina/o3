@@ -1,5 +1,7 @@
 RawDenoise supports iOS and iPadOS 18 or later.
 
+This update fixes the Files import handoff: the native picker requests local copies, dismisses before staging starts, and accepts provider files whose camera format is labeled as generic data. App-side staging runs off the main thread with per-file progress, cancellation, and visible errors. Originals remain unchanged.
+
 - Select multiple RAW images from Files and denoise them individually, one at a time.
 - Run the bundled RawForge TreeNet Super Light model locally through Core ML.
 - Choose **DNG** (default) or **TIFF** for full-resolution 16-bit denoised exports.
