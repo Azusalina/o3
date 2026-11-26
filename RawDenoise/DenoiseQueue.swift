@@ -27,8 +27,12 @@ final class DenoiseQueue {
     }
     private var work: Task<Void, Never>?
     private var importWork: Task<Void, Never>?
+    private var failedImports: [RawFileImporter.Source] = []
+    var failedImportCount: Int { failedImports.count }
     private let engine = RawDenoiser()
-    private let staging = FileManager.default.temporaryDirectory.appendingPathComponent("RAW-imports", isDirectory: true)
+    private let staging = FileManager.default.temporaryDirectory
+        .appendingPathComponent("RAW-imports", isDirectory: true)
+        .appendingPathComponent(UUID().uuidString, isDirectory: true)
 
     var hasPending: Bool { items.contains(where: \.pending) }
 
@@ -38,33 +42,55 @@ final class DenoiseQueue {
                 .appendingPathComponent("denoised", isDirectory: true)
             try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
             outputFolder = folder
-            // Imports are transient; exported images survive relaunches.
-            try? FileManager.default.removeItem(at: staging)
+            // Queue/view recreation must never delete another queue's staged files.
             try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
         } catch { message = error.localizedDescription }
     }
 
+    deinit { try? FileManager.default.removeItem(at: staging) }
+
     func importFiles(_ urls: [URL]) {
         guard !isRunning, !isImporting else { return }
+        // This runs synchronously in the picker delegate before dismissal.
+        beginImport(urls.map { RawFileImporter.Source($0) })
+    }
+
+    func retryImports() {
+        guard !isRunning, !isImporting else { return }
+        let sources = failedImports
+        failedImports = []
+        message = nil
+        beginImport(sources)
+    }
+
+    private func beginImport(_ sources: [RawFileImporter.Source]) {
+        guard !sources.isEmpty else { return }
         isImporting = true
         let directory = staging
         importWork = Task {
             defer { isImporting = false; importWork = nil; importStatus = "" }
             var failures: [String] = []
-            for (index, url) in urls.enumerated() {
-                if Task.isCancelled { break }
-                importStatus = "Importing \(index + 1) of \(urls.count): \(url.lastPathComponent)"
+            for (index, source) in sources.enumerated() {
+                if Task.isCancelled { failedImports.append(contentsOf: sources[index...]); break }
+                let url = source.url
+                let status = "Importing \(index + 1) of \(sources.count): \(url.lastPathComponent)"
+                importStatus = status
                 importProgress = 0
                 do {
-                    let local = try await RawFileImporter.copy(source: url, directory: directory) { value in
+                    let local = try await RawFileImporter.copy(source: source, directory: directory) { value in
                         Task { @MainActor [weak self] in
-                            guard let self, self.isImporting else { return }
+                            guard let self, self.isImporting, self.importStatus == status else { return }
                             self.importProgress = value
                         }
                     }
                     items.append(QueueItem(source: local, name: url.lastPathComponent))
-                } catch is CancellationError { break }
-                catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
+                } catch is CancellationError {
+                    failedImports.append(contentsOf: sources[index...])
+                    break
+                } catch {
+                    failedImports.append(source)
+                    failures.append("\(url.lastPathComponent): \(error.localizedDescription)")
+                }
             }
             if !failures.isEmpty { message = failures.joined(separator: "\n\n") }
         }
@@ -114,11 +140,13 @@ final class DenoiseQueue {
         }
     }
 
-    func cancel() { work?.cancel(); importWork?.cancel() }
+    func cancelProcessing() { work?.cancel() }
+    func cancel() { cancelProcessing(); importWork?.cancel() }
 
     func clear() {
         guard !isRunning, !isImporting else { return }
         for item in items { try? FileManager.default.removeItem(at: item.source) }
         items.removeAll()
+        failedImports.removeAll()
     }
 }

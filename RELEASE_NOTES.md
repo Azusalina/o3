@@ -1,12 +1,14 @@
 RawDenoise supports iOS and iPadOS 18 or later.
 
+Fixes shared staging deletion when a queue/view is recreated: each queue now owns an isolated staging directory. Fixes intermittent RAW selection handoff: consume selection directly in the picker callback, retain file access through staging, ignore duplicate terminal picker callbacks, and keep imports alive through scene transitions. Transient file-read failures retry automatically; failed imports can be retried without selecting files again.
+
 Choose TreeNet General, Light, Super Light, or Heavy before starting a batch. All four Core ML models are bundled for offline use. The choice persists between launches and stays fixed during each batch. Only the selected network is loaded. Super Light remains the default.
 
 DNG exports now include a full-resolution, high-quality sRGB JPEG preview for viewers such as Files and Photos, replacing the old 256-pixel thumbnail. The RGB16 linear RAW data remains in its separate SubIFD. Tile geometry is checked with a no-denoising round trip before release.
 
 Corrected reversed scanlines inside each denoising tile, which could scramble image regions and blur overlapping tiles.
 
-This update fixes the Files import handoff: the native picker requests local copies, dismisses before staging starts, and accepts provider files whose camera format is labeled as generic data. App-side staging runs off the main thread with per-file progress, cancellation, and visible errors. Originals remain unchanged.
+This update fixes the Files import handoff: the native picker requests local copies, hands selections directly to staging before dismissal, and accepts provider files whose camera format is labeled as generic data. App-side staging runs off the main thread with per-file progress, cancellation, and visible errors. Originals remain unchanged.
 
 - Select multiple RAW images from Files and denoise them individually, one at a time.
 - Run the selected bundled RawForge TreeNet model locally through Core ML.

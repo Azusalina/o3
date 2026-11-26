@@ -20,8 +20,100 @@ final class RawDenoiseTests: XCTestCase {
         let file = URL(fileURLWithPath: "/tmp/camera.dng")
         coordinator.documentPicker(configured, didPickDocumentsAt: [file])
         XCTAssertEqual(selection, [file])
+        coordinator.documentPicker(configured, didPickDocumentsAt: [])
         coordinator.documentPickerWasCancelled(configured)
+        XCTAssertFalse(cancelled, "Dismissal/cancel callbacks must not undo a completed selection")
+        XCTAssertEqual(selection, [file])
+        let cancelCoordinator = view.makeCoordinator()
+        cancelCoordinator.documentPickerWasCancelled(configured)
         XCTAssertTrue(cancelled)
+    }
+
+    @MainActor
+    private func waitForImport(_ queue: DenoiseQueue) async throws {
+        for _ in 0..<500 {
+            if !queue.isImporting { return }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        XCTFail("Import did not finish")
+    }
+
+    @MainActor
+    func testPickerSelectionIsConsumedBeforeDismissalAndSurvivesBackgroundTransition() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let first = directory.appendingPathComponent("first.dng")
+        let second = directory.appendingPathComponent("second.nef")
+        let data = Data(repeating: 17, count: 2_500_000)
+        try data.write(to: first); try data.write(to: second)
+        let queue = DenoiseQueue()
+        defer { queue.clear() }
+        let picker = RAWFilePicker(onSelection: queue.importFiles, onCancel: {})
+        let coordinator = picker.makeCoordinator()
+        let controller = picker.makePicker(delegate: coordinator)
+        coordinator.documentPicker(controller, didPickDocumentsAt: [first, second])
+        XCTAssertTrue(queue.isImporting, "Selection must start synchronously, without waiting for onDismiss")
+        queue.cancelProcessing() // Same operation the scene's background handler uses.
+        coordinator.documentPickerWasCancelled(controller)
+        try await waitForImport(queue)
+        XCTAssertEqual(queue.items.count, 2)
+        XCTAssertEqual(queue.failedImportCount, 0)
+        for item in queue.items { XCTAssertEqual(try Data(contentsOf: item.source), data) }
+    }
+
+    @MainActor
+    func testCreatingAnotherQueueDoesNotRemoveImportedFiles() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("original.dng")
+        let bytes = Data(repeating: 99, count: 1024)
+        try bytes.write(to: url)
+        let first = DenoiseQueue()
+        defer { first.clear() }
+        first.importFiles([url])
+        try await waitForImport(first)
+        let imported = try XCTUnwrap(first.items.first).source
+        let second = DenoiseQueue()
+        second.clear()
+        XCTAssertEqual(try Data(contentsOf: imported), bytes)
+    }
+
+    @MainActor
+    func testFailedImportCanBeRetriedWithoutReselecting() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appendingPathComponent("delayed.dng")
+        let queue = DenoiseQueue()
+        defer { queue.clear() }
+        queue.importFiles([url])
+        try await waitForImport(queue)
+        XCTAssertEqual(queue.failedImportCount, 1)
+        let data = Data(repeating: 25, count: 1024)
+        try data.write(to: url)
+        queue.retryImports()
+        try await waitForImport(queue)
+        XCTAssertEqual(queue.failedImportCount, 0)
+        XCTAssertEqual(queue.items.count, 1)
+        XCTAssertEqual(try Data(contentsOf: XCTUnwrap(queue.items.first).source), data)
+    }
+
+    func testTransientUnavailableFileIsAutomaticallyRetried() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let source = directory.appendingPathComponent("delayed.nef")
+        let data = Data(repeating: 43, count: 4096)
+        let producer = Task.detached {
+            try await Task.sleep(for: .milliseconds(100))
+            try data.write(to: source)
+        }
+        defer { producer.cancel() }
+        let copied = try await RawFileImporter.copy(source: source, directory: directory.appendingPathComponent("copies"), progress: { _ in })
+        try await producer.value
+        XCTAssertEqual(try Data(contentsOf: copied), data)
     }
 
     func testImportCopiesLargeRAWAndKeepsOriginal() async throws {

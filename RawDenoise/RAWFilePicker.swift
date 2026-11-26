@@ -23,14 +23,23 @@ struct RAWFilePicker: UIViewControllerRepresentable {
         return picker
     }
 
-    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {}
+    func updateUIViewController(_ controller: UIDocumentPickerViewController, context: Context) {
+        context.coordinator.parent = self
+    }
 
     final class Coordinator: NSObject, UIDocumentPickerDelegate {
-        let parent: RAWFilePicker
+        var parent: RAWFilePicker
+        private var finished = false
         init(parent: RAWFilePicker) { self.parent = parent }
         func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            guard !finished else { return }
+            finished = true
             parent.onSelection(urls)
         }
-        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { parent.onCancel() }
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            guard !finished else { return }
+            finished = true
+            parent.onCancel()
+        }
     }
 }

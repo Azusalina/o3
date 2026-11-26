@@ -4,7 +4,6 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @State private var queue = DenoiseQueue()
     @State private var selecting = false
-    @State private var selectedURLs: [URL] = []
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some View {
@@ -57,13 +56,17 @@ struct ContentView: View {
                     }.disabled(queue.isRunning || queue.isImporting || !queue.hasPending)
                     if queue.isRunning {
                         Button("Cancel", role: .destructive) { queue.cancel() }
-                    } else if !queue.items.isEmpty {
+                    } else if !queue.items.isEmpty || queue.failedImportCount > 0 {
                         Button("Clear list", role: .destructive) { queue.clear() }
                             .disabled(queue.isImporting)
                     }
                     if queue.isImporting {
                         ProgressView(queue.importStatus, value: queue.importProgress)
                         Button("Cancel import", role: .destructive) { queue.cancel() }
+                    }
+                    if !queue.isImporting && queue.failedImportCount > 0 {
+                        Button("Retry imports (\(queue.failedImportCount))") { queue.retryImports() }
+                            .disabled(queue.isRunning)
                     }
                 }
                 Section {
@@ -74,16 +77,11 @@ struct ContentView: View {
                 }
             }
             .navigationTitle("RawDenoise")
-            .sheet(isPresented: $selecting, onDismiss: {
-                let urls = selectedURLs
-                selectedURLs = []
-                if !urls.isEmpty { queue.importFiles(urls) }
-            }) {
+            .sheet(isPresented: $selecting) {
                 RAWFilePicker(onSelection: { urls in
-                    selectedURLs = urls
+                    queue.importFiles(urls)
                     selecting = false
                 }, onCancel: {
-                    selectedURLs = []
                     selecting = false
                 })
             }
@@ -91,7 +89,7 @@ struct ContentView: View {
                 Button("OK") { queue.message = nil }
             } message: { Text(queue.message ?? "") }
             .onChange(of: scenePhase) { _, phase in
-                if phase == .background { queue.cancel() }
+                if phase == .background { queue.cancelProcessing() }
             }
         }
     }
